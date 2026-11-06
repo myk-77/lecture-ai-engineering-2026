@@ -5,10 +5,14 @@
 """
 
 import json
+import random
+from datetime import datetime, timezone
+from uuid import uuid4
 from functools import cache
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+LEARNING_LOG_DIR = DATA_DIR.parent / "learning_log"
 MAX_RESULTS = 3
 
 
@@ -77,3 +81,42 @@ def get_lecture_summary(lecture: int) -> str:
         available = sorted(p.stem for p in (DATA_DIR / "lectures").glob("*.md"))
         return f"第{lecture}回の要点はまだありません。用意されている回: {', '.join(available)}"
     return path.read_text(encoding="utf-8")
+
+
+def make_quiz(lecture: int) -> str:
+    """指定した回の用語から1つ選び、確認問題と答えを返す。
+
+    「第2回の内容から確認問題を1問出して」のように、
+    特定の回の復習用の問題を求められたときに使う。
+    """
+    terms = [entry for entry in load_glossary() if entry["lecture"] == lecture]
+    if not terms:
+        return f"第{lecture}回の用語は用語集にありません。"
+    selected = random.choice(terms)
+    return json.dumps(
+        {
+            "question": f"「{selected['term']}」の意味は？",
+            "answer": selected["definition"],
+        },
+        ensure_ascii=False,
+    )
+
+
+def save_learning_log(topic: str, note: str) -> str:
+    """学習記録の保存を明示的に頼まれたとき、題名と内容を保存する。
+
+    保存前に利用者の承認が必要。topicは題名、noteは記録する内容。
+    """
+    if not topic.strip() or not note.strip():
+        return "記録の題名と内容を指定してください。"
+    record = {
+        "topic": topic,
+        "note": note,
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    LEARNING_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    path = LEARNING_LOG_DIR / f"learning_{uuid4().hex}.json"
+    with path.open("x", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    return json.dumps({"saved": True, "path": str(path)}, ensure_ascii=False)
